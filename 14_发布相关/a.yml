@@ -1,0 +1,180 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: biz-cmdb-cron
+  namespace: cmdb
+data:
+  config.yaml: |
+    
+    Logger:
+      level: "INFO"
+      pretty: false
+      color: true
+      logfile: ""
+
+    Server:
+      serverName: "biz-cmdb-cron"
+      runMode: "debug"
+      host: "0.0.0.0"
+      port: 9018
+      readTimeout: 60
+      writeTimeout: 60
+      rpcCallTimeout: 10
+      endpoint: "http://10.9.201.211:30100"   # Web端地址
+
+    MongoDB:
+      contextTimeout: 10
+      dbName: "biz_cmdb_test"
+      hostPorts: "mongodb-0.mongodb.cmdb.svc.cluster.local:27017,mongodb-1.mongodb.cmdb.svc.cluster.local:27017,mongodb-2.mongodb.cmdb.svc.cluster.local:27017"
+      username: ""
+      password: ""
+      configs: "replicaSet=cmdb_rs"
+      maxPoolSize: 100
+      minPoolSize: 10
+      maxConnIdleTime: 300
+    
+    MySQL:
+      host: 10.9.201.211
+      port: 31306
+      username: root
+      password: Znsl@2025!
+      dbName: biz_cmdb_test
+      charset: utf8mb4
+      parseTime: true
+      loc: Local
+      maxOpenConns: 100
+      maxIdleConns: 10
+      connMaxLifetime: 3600
+      connMaxIdleTime: 120
+      slowThreshold: 200
+      logLevel: Warn
+
+    Auth:
+      enabled: true
+      keycloak:
+        clientID: "IAM"
+        clientSecret: "2FIwRQolj0szEJLMVIbji8IIUQvliW62"
+        keycloakURL: "http://10.9.201.211:30508"
+        realm: "znsl"
+        User: "bizcmdb"
+        Password: "BizCmdb$521"
+    
+    Iam:
+      endpoint: "http://10.9.201.211:30100/iam"
+      clientId: "cli_7d2c0bf28dfb2bfaaaa9e593"
+    
+    WorkOrder:
+      endpoint: "http://10.9.201.211:30100/order"
+
+    ProjectApproval:
+      approverUserIds:
+        - "99973g42"
+        - "2dde7422"
+        - "642857186"
+    
+    Jaeger:
+      addr: "10.9.201.211:35679"
+
+    Cmdb:
+      endpoint: "http://10.9.201.211:30100"
+
+    SysAdmins:
+      iamRoleId: 75
+      userIds:
+        - "642568769"
+        - "e2bc4c78"
+
+    UserFilter:
+      filterDepartmentIds: [46]
+      filterUserIds: [21]
+
+---
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: biz-cmdb-cron
+  namespace: cmdb
+  labels:
+    app: biz-cmdb-cron
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 50%
+      maxSurge: 50%
+  selector:
+    matchLabels:
+      app: biz-cmdb-cron
+  template:
+    metadata:
+      labels:
+        app: biz-cmdb-cron
+    spec:
+      imagePullSecrets:
+        - name: nexus-docker-secret
+      containers:
+        - name: biz-cmdb-cron
+          image: nexus-docker.zs.shaipower.online/znsl_ops/biz-cmdb-cron:test-202603021740
+          imagePullPolicy: Always
+          resources:
+            limits:
+              cpu: 500m
+              memory: 1000Mi
+            requests:
+              cpu: 100m
+              memory: 100Mi
+          env:
+            - name: ENV
+              value: test
+            - name: MONGO_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: biz-cmdb-cron-secret
+                  key: MONGO_USERNAME
+            - name: MONGO_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: biz-cmdb-cron-secret
+                  key: MONGO_PASSWORD
+          volumeMounts:
+            - name: config
+              mountPath: /app/config
+      volumes:
+        - name: config
+          configMap:
+            name: biz-cmdb-cron
+            items:
+              - key: config.yaml
+                path: config.yaml
+
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                  - key: app
+                    operator: In
+                    values:
+                      - biz-cmdb-cron
+              topologyKey: kubernetes.io/hostname
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: biz-cmdb-cron
+  namespace: cmdb
+  labels:
+    app: biz-cmdb-cron
+spec:
+  type: NodePort
+  ports:
+    - port: 9018
+      targetPort: 9018
+      nodePort: 30283
+  selector:
+    app: biz-cmdb-cron
